@@ -1,0 +1,33 @@
+# ERP-Core-System — PostgreSQL Development Environment
+# Kullanım: docker compose up -d
+# PostgreSQL latest stable sürümü kullanılıyor.
+#
+# Neden Docker Compose?
+# - Geliştirme ortamını tekrarlanabilir (reproducible) kılar.
+# - Takım üyeleri aynı DB versiyonunu kullanır.
+# - CI/CD pipeline'larında kolayca entegre edilir.
+# - Host makineye PostgreSQL kurulumu gerektirmez.
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: erp-core-postgres
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-erp_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-erp_secure_password_2026}
+      POSTGRES_DB: ${DB_NAME:-erp_core}
+    volumes:
+      - erp_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-erp_admin} -d ${DB_NAME:-erp_core}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  erp_postgres_data:
+    driver: local

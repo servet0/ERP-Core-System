@@ -1,0 +1,46 @@
+{
+  "name": "erp-core-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sipariş ve Stok Yönetimi - ERP Çekirdek Modülü",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:prod": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:seed": "npx tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.3.0",
+    "@tailwindcss/postcss": "^4.1.18",
+    "autoprefixer": "^10.4.24",
+    "bcryptjs": "^3.0.3",
+    "next": "^16.1.6",
+    "postcss": "^8.5.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.1.18",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "dotenv": "^17.2.4",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.6",
+    "prisma": "^7.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

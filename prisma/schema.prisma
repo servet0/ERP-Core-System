@@ -1,0 +1,180 @@
+// ─────────────────────────────────────────────────────────────────
+// ERP-Core-System — Prisma Schema
+// ─────────────────────────────────────────────────────────────────
+// Neden Prisma?
+//   1. Type-safe veritabanı erişimi — TypeScript entegrasyonu mükemmel.
+//   2. Interactive transactions ($transaction) ile pessimistic locking desteği.
+//   3. Deklaratif schema → migration otomatik üretimi.
+//   4. Prisma Studio ile hızlı veri inceleme.
+//   5. Next.js ekosistemi ile en yaygın kullanılan ORM.
+//
+// Alternatif: TypeORM
+//   - Active Record + Data Mapper pattern desteği var ama TypeScript tip
+//     güvenliği Prisma kadar güçlü değil.
+//   - Next.js App Router + Server Components ile entegrasyonu daha zayıf.
+//   - Migration yönetimi daha manuel.
+// ─────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────── Kullanıcı & Rol ────────────────
+
+enum Role {
+  ADMIN
+  SALES
+  WAREHOUSE
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         Role     @default(VIEWER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // İlişkiler
+  orders         Order[]
+  stockMovements StockMovement[]
+  invoices       Invoice[]
+
+  @@map("users")
+}
+
+// ──────────────── Ürün & Stok ────────────────
+
+model Product {
+  id           String   @id @default(cuid())
+  sku          String   @unique
+  name         String
+  description  String?
+  unit         String   @default("ADET") // ADET, KG, LT, METRE
+  price        Decimal  @default(0) @db.Decimal(12, 2)
+  minStock     Int      @default(0) @map("min_stock")
+  currentStock Int      @default(0) @map("current_stock")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // İlişkiler
+  orderItems     OrderItem[]
+  stockMovements StockMovement[]
+
+  @@index([sku])
+  @@index([name])
+  @@map("products")
+}
+
+// ─── Stok Hareket Türleri ───
+// IN:         Depo girişi (manuel stok artırma)
+// OUT:        Manuel çıkış (sayım farkı, fire vb.)
+// ORDER_OUT:  Sipariş onayı ile otomatik stok düşme
+// CANCEL_IN:  Sipariş iptali ile otomatik stok iade
+
+enum MovementType {
+  IN
+  OUT
+  ORDER_OUT
+  CANCEL_IN
+}
+
+model StockMovement {
+  id          String       @id @default(cuid())
+  productId   String       @map("product_id")
+  type        MovementType
+  quantity    Int          // Her zaman pozitif; yön type'dan anlaşılır
+  reference   String?      // Sipariş No veya harici referans
+  note        String?
+  createdById String       @map("created_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  // İlişkiler
+  product   Product @relation(fields: [productId], references: [id])
+  createdBy User    @relation(fields: [createdById], references: [id])
+
+  @@index([productId, createdAt])
+  @@index([type])
+  @@map("stock_movements")
+}
+
+// ──────────────── Sipariş ────────────────
+
+// Sipariş Durum Makinesi:
+//   DRAFT → APPROVED → (CANCELLED)
+//   DRAFT → CANCELLED
+// Geri geçiş yoktur (APPROVED → DRAFT yapılamaz).
+
+enum OrderStatus {
+  DRAFT
+  APPROVED
+  CANCELLED
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  orderNumber  String      @unique @map("order_number")
+  status       OrderStatus @default(DRAFT)
+  customerName String      @map("customer_name")
+  totalAmount  Decimal     @default(0) @db.Decimal(12, 2) @map("total_amount")
+  note         String?
+  createdById  String      @map("created_by_id")
+  approvedAt   DateTime?   @map("approved_at")
+  cancelledAt  DateTime?   @map("cancelled_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  // İlişkiler
+  items     OrderItem[]
+  invoices  Invoice[]
+  createdBy User        @relation(fields: [createdById], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String  @map("order_id")
+  productId String  @map("product_id")
+  quantity  Int
+  unitPrice Decimal @db.Decimal(12, 2) @map("unit_price")
+  total     Decimal @db.Decimal(12, 2)
+
+  // İlişkiler
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+// ──────────────── Fatura ────────────────
+
+// Fatura oluşturulduktan sonra DEĞİŞTİRİLEMEZ (immutable).
+// Bu kural service katmanında zorunlu tutulur.
+
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique @map("invoice_number")
+  orderId       String   @map("order_id")
+  totalAmount   Decimal  @db.Decimal(12, 2) @map("total_amount")
+  createdById   String   @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // İlişkiler
+  order     Order @relation(fields: [orderId], references: [id])
+  createdBy User  @relation(fields: [createdById], references: [id])
+
+  @@index([orderId])
+  @@map("invoices")
+}
