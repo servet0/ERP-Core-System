@@ -94,8 +94,8 @@ export class DuplicateInvoiceError extends BusinessError {
  * Kayıt bulunamadı hatası.
  */
 export class NotFoundError extends BusinessError {
-    constructor(entity: string, id: string) {
-        super("NOT_FOUND", `${entity} bulunamadı: ${id}`, 404);
+    constructor(message: string, id?: string) {
+        super("NOT_FOUND", id ? `${message} bulunamadı: ${id}` : message, 404);
         this.name = "NotFoundError";
     }
 }
@@ -106,11 +106,10 @@ export class NotFoundError extends BusinessError {
 export class ValidationError extends BusinessError {
     public readonly fieldErrors: Record<string, string[]>;
 
-    constructor(fieldErrors: Record<string, string[]>) {
-        const fields = Object.keys(fieldErrors).join(", ");
-        super("VALIDATION_ERROR", `Doğrulama hatası: ${fields}`);
+    constructor(message: string, fieldErrors?: Record<string, string[]>) {
+        super("VALIDATION_ERROR", message);
         this.name = "ValidationError";
-        this.fieldErrors = fieldErrors;
+        this.fieldErrors = fieldErrors ?? {};
     }
 }
 
