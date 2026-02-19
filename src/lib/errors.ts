@@ -18,6 +18,7 @@ export type ErrorCode =
     | "NOT_FOUND"
     | "VALIDATION_ERROR"
     | "INSUFFICIENT_STOCK"
+    | "ORGANIZATION_MISMATCH"
     | "INVALID_ORDER_STATUS"
     | "DUPLICATE_INVOICE"
     | "RATE_LIMIT_EXCEEDED"
@@ -63,6 +64,17 @@ export class InsufficientStockError extends AppError {
         this.sku = sku;
         this.available = available;
         this.requested = requested;
+    }
+}
+
+export class OrganizationMismatchError extends AppError {
+    constructor(entity: string, entityId: string, organizationId: string) {
+        super(
+            "ORGANIZATION_MISMATCH",
+            `${entity} (${entityId}) bu organizasyona (${organizationId}) ait değildir.`,
+            403
+        );
+        this.name = "OrganizationMismatchError";
     }
 }
 

@@ -35,9 +35,11 @@ export const createOrderSchema = z.object({
 });
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
-// ── Sipariş Onay / İptal (sadece ID gerektirir) ──
+// ── Sipariş Onay / İptal (stok mutasyonu gerektirir) ──
 export const orderActionSchema = z.object({
     orderId: z.string().cuid("Geçersiz sipariş ID"),
+    organizationId: z.string().cuid("Geçersiz organizasyon ID"),
+    warehouseId: z.string().cuid("Geçersiz depo ID"),
 });
 export type OrderActionInput = z.infer<typeof orderActionSchema>;
 

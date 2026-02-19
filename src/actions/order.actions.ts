@@ -48,8 +48,8 @@ export async function approveOrderAction(
         if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
         const start = Date.now();
-        const { orderId } = orderActionSchema.parse(input);
-        const result = await orderService.approveOrder(orderId, user.id);
+        const { orderId, organizationId, warehouseId } = orderActionSchema.parse(input);
+        const result = await orderService.approveOrder(orderId, user.id, organizationId, warehouseId);
 
         await logAudit({
             userId: user.id, action: "order.approve", entity: "Order",
@@ -74,8 +74,8 @@ export async function cancelOrderAction(
         if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
         const start = Date.now();
-        const { orderId } = orderActionSchema.parse(input);
-        const result = await orderService.cancelOrder(orderId, user.id);
+        const { orderId, organizationId, warehouseId } = orderActionSchema.parse(input);
+        const result = await orderService.cancelOrder(orderId, user.id, organizationId, warehouseId);
 
         await logAudit({
             userId: user.id, action: "order.cancel", entity: "Order",

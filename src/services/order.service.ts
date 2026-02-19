@@ -17,11 +17,10 @@ import { withTransaction, lockOrderForUpdate, generateSequentialNumber } from "@
 import { InvalidOrderStatusError, NotFoundError } from "@/lib/errors";
 import { publishEvent } from "@/lib/outbox";
 import { reserveStockForOrder, returnStockForCancel } from "./stock.service";
-import { OrderStatus, type PrismaClient } from "@prisma/client";
+import { OrderStatus } from "@prisma/client";
 import type { CreateOrderInput, OrderFilterInput } from "@/schemas/order.schema";
 import type { PaginatedResult } from "@/types";
-
-type TxClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
+import type { TransactionClient } from "@/lib/transaction";
 
 // ─── Sipariş Oluşturma (DRAFT) ───
 export async function createOrder(
@@ -29,7 +28,7 @@ export async function createOrder(
     userId: string
 ) {
     return withTransaction(async (tx) => {
-        const txClient = tx as unknown as TxClient;
+        const txClient = tx as TransactionClient;
 
         // Ardışık sipariş numarası üret
         const orderNumber = await generateSequentialNumber(tx, "SIP", "orders", "order_number");
@@ -70,9 +69,14 @@ export async function createOrder(
 }
 
 // ─── Sipariş Onaylama (DRAFT → APPROVED) ───
-export async function approveOrder(orderId: string, userId: string) {
+export async function approveOrder(
+    orderId: string,
+    userId: string,
+    organizationId: string,
+    warehouseId: string,
+) {
     return withTransaction(async (tx) => {
-        const txClient = tx as unknown as TxClient;
+        const txClient = tx as TransactionClient;
 
         // Pessimistic lock ile siparişi kilitle
         const order = await lockOrderForUpdate(tx, orderId);
@@ -90,9 +94,6 @@ export async function approveOrder(orderId: string, userId: string) {
         });
 
         // Stok düş — her kalem için pessimistic lock + kontrol
-        // TODO: warehouseId sipariş verisinden veya varsayılan depodan alınacak
-        const organizationId = "";
-        const warehouseId = "";
         await reserveStockForOrder(
             txClient,
             organizationId,
@@ -126,9 +127,14 @@ export async function approveOrder(orderId: string, userId: string) {
 }
 
 // ─── Sipariş İptal (APPROVED → CANCELLED) ───
-export async function cancelOrder(orderId: string, userId: string) {
+export async function cancelOrder(
+    orderId: string,
+    userId: string,
+    organizationId: string,
+    warehouseId: string,
+) {
     return withTransaction(async (tx) => {
-        const txClient = tx as unknown as TxClient;
+        const txClient = tx as TransactionClient;
 
         const order = await lockOrderForUpdate(tx, orderId);
         if (!order) {
@@ -145,9 +151,6 @@ export async function cancelOrder(orderId: string, userId: string) {
         });
 
         // Stok geri yükle
-        // TODO: warehouseId sipariş verisinden veya varsayılan depodan alınacak
-        const organizationId = "";
-        const warehouseId = "";
         await returnStockForCancel(
             txClient,
             organizationId,

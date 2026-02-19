@@ -67,7 +67,7 @@ export async function withTransaction<T>(
  *   Prisma query API'si FOR UPDATE desteklemez. $queryRaw ile
  *   doğrudan PostgreSQL'in satır kilitleme mekanizmasını kullanırız.
  *
- * @returns Kilitlenen ürün kaydı (id, sku, currentStock, minStock, active, name, price, unit)
+ * @returns Kilitlenen ürün kaydı (id, sku, name, unit, price, active, organization_id)
  */
 export async function lockProductForUpdate(
     tx: TransactionClient,
@@ -78,8 +78,7 @@ export async function lockProductForUpdate(
     name: string;
     unit: string;
     price: Prisma.Decimal;
-    current_stock: number;
-    min_stock: number;
+    organization_id: string;
     active: boolean;
 } | null> {
     const results = await (tx as PrismaClient).$queryRaw<
@@ -89,12 +88,11 @@ export async function lockProductForUpdate(
             name: string;
             unit: string;
             price: Prisma.Decimal;
-            current_stock: number;
-            min_stock: number;
+            organization_id: string;
             active: boolean;
         }>
     >`
-    SELECT id, sku, name, unit, price, current_stock, min_stock, active
+    SELECT id, sku, name, unit, price, organization_id, active
     FROM products
     WHERE id = ${productId}
     FOR UPDATE

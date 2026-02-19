@@ -32,6 +32,7 @@ export const PERMISSIONS = {
     "stock:view": [Role.ADMIN, Role.SALES, Role.WAREHOUSE, Role.VIEWER],
     "stock:movement:in": [Role.ADMIN, Role.WAREHOUSE],
     "stock:movement:out": [Role.ADMIN, Role.WAREHOUSE],
+    "stock:adjustment": [Role.ADMIN, Role.WAREHOUSE],
 
     // ── Sipariş Yönetimi ──
     "orders:list": [Role.ADMIN, Role.SALES, Role.VIEWER],
