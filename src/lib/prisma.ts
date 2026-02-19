@@ -1,30 +1,34 @@
 // ─────────────────────────────────────────────────────────────────
-// Prisma Client Singleton
+// Prisma Client Singleton (Prisma v7 + Driver Adapter)
 // ─────────────────────────────────────────────────────────────────
-// Neden singleton?
-//   Next.js development modunda hot-reload her dosya değişikliğinde
-//   modülleri yeniden yükler. Her yeniden yüklemede yeni bir
-//   PrismaClient oluşturulursa bağlantı havuzu (connection pool)
-//   tükenir. Global nesne üzerinden singleton pattern bu sorunu çözer.
+// Prisma v7 removed the binary/library query engines.
+// The only engine is "client", which requires a driver adapter
+// for direct PostgreSQL connections.
 //
-// Production'da Node.js modüller yalnızca bir kez yüklenir,
-// dolayısıyla globalThis trick'i gereksizdir ama zararsızdır.
+// We use @prisma/adapter-pg with the "pg" driver.
 // ─────────────────────────────────────────────────────────────────
 
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const connectionString = process.env.DATABASE_URL!;
 
 const globalForPrisma = globalThis as unknown as {
     prisma: PrismaClient | undefined;
 };
 
-export const prisma =
-    globalForPrisma.prisma ??
-    new PrismaClient({
+function createPrismaClient(): PrismaClient {
+    const adapter = new PrismaPg(connectionString);
+    return new PrismaClient({
+        adapter,
         log:
             process.env.NODE_ENV === "development"
                 ? ["query", "error", "warn"]
                 : ["error"],
     });
+}
+
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = prisma;
