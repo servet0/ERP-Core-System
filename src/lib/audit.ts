@@ -52,7 +52,9 @@ export async function logAudit(params: AuditLogParams): Promise<void> {
                 action: params.action,
                 entity: params.entity,
                 entityId: params.entityId,
-                metadata: safeMetadata ?? Prisma.JsonNull,
+                metadata: safeMetadata
+                    ? (safeMetadata as Prisma.InputJsonValue)
+                    : Prisma.JsonNull,
                 ipAddress: params.ipAddress,
                 userAgent: params.userAgent,
                 status: params.status ?? "SUCCESS",

@@ -1,18 +1,14 @@
 // ─────────────────────────────────────────────────────────────────
-// Order Server Actions — Application Katmanı
-// ─────────────────────────────────────────────────────────────────
-// Sipariş operasyonlarında granüler izin kontrolü:
-//   - Oluşturma: orders:create (ADMIN, SALES)
-//   - Onaylama: orders:approve (sadece ADMIN)
-//   - İptal: orders:cancel (sadece ADMIN)
-//   - Listeleme: orders:list (ADMIN, SALES, VIEWER)
+// Order Server Actions (Phase 5: +audit, +rate-limit)
 // ─────────────────────────────────────────────────────────────────
 
 "use server";
 
 import { requireAuth } from "@/lib/session";
 import { requirePermission } from "@/lib/permissions";
-import { handleActionError, type ActionResult } from "@/lib/errors";
+import { handleActionError, RateLimitError, type ActionResult } from "@/lib/errors";
+import { logAudit } from "@/lib/audit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createOrderSchema, orderActionSchema, orderFilterSchema } from "@/schemas/order.schema";
 import * as orderService from "@/services/order.service";
 
@@ -23,9 +19,19 @@ export async function createOrderAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "orders:create");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const validated = createOrderSchema.parse(input);
         const result = await orderService.createOrder(validated, user.id);
+
+        await logAudit({
+            userId: user.id, action: "order.create", entity: "Order",
+            entityId: result.id,
+            metadata: { orderNumber: result.orderNumber, itemCount: validated.items.length },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: result };
     } catch (error) {
         return handleActionError(error);
@@ -39,9 +45,19 @@ export async function approveOrderAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "orders:approve");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const { orderId } = orderActionSchema.parse(input);
         const result = await orderService.approveOrder(orderId, user.id);
+
+        await logAudit({
+            userId: user.id, action: "order.approve", entity: "Order",
+            entityId: orderId,
+            metadata: { orderNumber: result.orderNumber },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: result };
     } catch (error) {
         return handleActionError(error);
@@ -55,16 +71,26 @@ export async function cancelOrderAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "orders:cancel");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const { orderId } = orderActionSchema.parse(input);
         const result = await orderService.cancelOrder(orderId, user.id);
+
+        await logAudit({
+            userId: user.id, action: "order.cancel", entity: "Order",
+            entityId: orderId,
+            metadata: { orderNumber: result.orderNumber },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: result };
     } catch (error) {
         return handleActionError(error);
     }
 }
 
-// ─── Sipariş Detayı ───
+// ─── Sipariş Detayı (read) ───
 export async function getOrderAction(
     id: string
 ): Promise<ActionResult<Awaited<ReturnType<typeof orderService.getOrderById>>>> {
@@ -79,7 +105,7 @@ export async function getOrderAction(
     }
 }
 
-// ─── Sipariş Listesi ───
+// ─── Sipariş Listesi (read) ───
 export async function listOrdersAction(
     input: unknown
 ): Promise<ActionResult<Awaited<ReturnType<typeof orderService.listOrders>>>> {

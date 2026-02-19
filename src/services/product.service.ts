@@ -4,6 +4,7 @@
 
 import prisma from "@/lib/prisma";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { excludeDeleted } from "@/lib/soft-delete";
 import type { CreateProductInput, UpdateProductInput, ProductFilterInput } from "@/schemas/product.schema";
 import type { PaginatedResult } from "@/types";
 import type { Product } from "@prisma/client";
@@ -51,14 +52,16 @@ export async function listProducts(
         // Phase 5'te optimize edilecek.
     }
 
+    const finalWhere = excludeDeleted(where);
+
     const [products, total] = await Promise.all([
         prisma.product.findMany({
-            where,
+            where: finalWhere,
             orderBy: { createdAt: "desc" },
             skip,
             take: pageSize,
         }),
-        prisma.product.count({ where }),
+        prisma.product.count({ where: finalWhere }),
     ]);
 
     return {

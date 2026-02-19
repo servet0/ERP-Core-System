@@ -1,15 +1,17 @@
 // ─────────────────────────────────────────────────────────────────
-// Invoice Server Actions — Application Katmanı
+// Invoice Server Actions (Phase 5: +audit, +rate-limit)
 // ─────────────────────────────────────────────────────────────────
-// Fatura salt okunur — sadece oluşturma ve görüntüleme işlemleri var.
-// Güncelleme ve silme ACTION'I KASITLI OLARAK YOK.
+// Fatura salt okunur — sadece oluşturma ve görüntüleme.
+// Güncelleme ve silme KASITLI OLARAK YOK.
 // ─────────────────────────────────────────────────────────────────
 
 "use server";
 
 import { requireAuth } from "@/lib/session";
 import { requirePermission } from "@/lib/permissions";
-import { handleActionError, type ActionResult } from "@/lib/errors";
+import { handleActionError, RateLimitError, type ActionResult } from "@/lib/errors";
+import { logAudit } from "@/lib/audit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createInvoiceSchema, invoiceFilterSchema } from "@/schemas/invoice.schema";
 import * as invoiceService from "@/services/invoice.service";
 
@@ -20,16 +22,26 @@ export async function createInvoiceAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "invoices:create");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const { orderId } = createInvoiceSchema.parse(input);
         const result = await invoiceService.createInvoice(orderId, user.id);
+
+        await logAudit({
+            userId: user.id, action: "invoice.create", entity: "Invoice",
+            entityId: result.id,
+            metadata: { invoiceNumber: result.invoiceNumber, orderId },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: result };
     } catch (error) {
         return handleActionError(error);
     }
 }
 
-// ─── Fatura Detayı ───
+// ─── Fatura Detayı (read) ───
 export async function getInvoiceAction(
     id: string
 ): Promise<ActionResult<Awaited<ReturnType<typeof invoiceService.getInvoiceById>>>> {
@@ -44,7 +56,7 @@ export async function getInvoiceAction(
     }
 }
 
-// ─── Fatura Listesi ───
+// ─── Fatura Listesi (read) ───
 export async function listInvoicesAction(
     input: unknown
 ): Promise<ActionResult<Awaited<ReturnType<typeof invoiceService.listInvoices>>>> {

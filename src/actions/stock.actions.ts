@@ -1,12 +1,14 @@
 // ─────────────────────────────────────────────────────────────────
-// Stock Server Actions — Application Katmanı
+// Stock Server Actions (Phase 5: +audit, +rate-limit)
 // ─────────────────────────────────────────────────────────────────
 
 "use server";
 
 import { requireAuth } from "@/lib/session";
 import { requirePermission } from "@/lib/permissions";
-import { handleActionError, type ActionResult } from "@/lib/errors";
+import { handleActionError, RateLimitError, type ActionResult } from "@/lib/errors";
+import { logAudit } from "@/lib/audit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { stockInSchema, stockOutSchema, stockMovementFilterSchema } from "@/schemas/stock.schema";
 import * as stockService from "@/services/stock.service";
 
@@ -17,7 +19,9 @@ export async function stockInAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "stock:movement:in");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const validated = stockInSchema.parse(input);
         await stockService.addStock(
             validated.productId,
@@ -25,6 +29,14 @@ export async function stockInAction(
             user.id,
             validated.note
         );
+
+        await logAudit({
+            userId: user.id, action: "stock.in", entity: "Product",
+            entityId: validated.productId,
+            metadata: { quantity: validated.quantity },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: undefined };
     } catch (error) {
         return handleActionError(error);
@@ -38,7 +50,9 @@ export async function stockOutAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "stock:movement:out");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const validated = stockOutSchema.parse(input);
         await stockService.removeStock(
             validated.productId,
@@ -46,13 +60,21 @@ export async function stockOutAction(
             user.id,
             validated.note
         );
+
+        await logAudit({
+            userId: user.id, action: "stock.out", entity: "Product",
+            entityId: validated.productId,
+            metadata: { quantity: validated.quantity },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: undefined };
     } catch (error) {
         return handleActionError(error);
     }
 }
 
-// ─── Stok Hareket Listesi ───
+// ─── Stok Hareket Listesi (read) ───
 export async function listStockMovementsAction(
     input: unknown
 ): Promise<ActionResult<Awaited<ReturnType<typeof stockService.listStockMovements>>>> {

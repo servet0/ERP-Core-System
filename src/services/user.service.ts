@@ -13,6 +13,7 @@
 import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { excludeDeleted } from "@/lib/soft-delete";
 import type { CreateUserInput, UpdateUserInput, ChangePasswordInput } from "@/schemas/user.schema";
 import type { PaginatedResult } from "@/types";
 import type { User } from "@prisma/client";
@@ -32,7 +33,7 @@ export async function listUsers(params: {
     const pageSize = params.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
 
-    const where = params.search
+    const baseWhere = params.search
         ? {
             OR: [
                 { name: { contains: params.search, mode: "insensitive" as const } },
@@ -40,6 +41,8 @@ export async function listUsers(params: {
             ],
         }
         : {};
+
+    const where = excludeDeleted(baseWhere);
 
     const [users, total] = await Promise.all([
         prisma.user.findMany({
@@ -187,7 +190,7 @@ export async function changePassword(input: ChangePasswordInput): Promise<void> 
     });
 }
 
-// ─── Kullanıcı Silme (Soft Delete — active = false) ───
+// ─── Kullanıcı Silme (Soft Delete — active + deletedAt) ───
 export async function deactivateUser(id: string): Promise<void> {
     const existing = await prisma.user.findUnique({
         where: { id },
@@ -199,6 +202,6 @@ export async function deactivateUser(id: string): Promise<void> {
 
     await prisma.user.update({
         where: { id },
-        data: { active: false },
+        data: { active: false, deletedAt: new Date() },
     });
 }

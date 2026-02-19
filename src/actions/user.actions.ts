@@ -1,26 +1,18 @@
 // ─────────────────────────────────────────────────────────────────
-// User Server Actions — Application Katmanı
-// ─────────────────────────────────────────────────────────────────
-// Server Actions ince bir katmandır:
-//   1. Zod ile input validasyonu
-//   2. requireAuth() ile kimlik kontrolü
-//   3. requirePermission() ile operasyon izni kontrolü
-//   4. Service çağrısı
-//   5. ActionResult<T> formatında sonuç dönüşü
-//
-// ❌ İş mantığı burada OLMAZ — service katmanında.
-// ❌ Hard-coded role check OLMAZ — permission-based kontrol zorunlu.
+// User Server Actions — Application Katmanı (Phase 5: +audit, +rate-limit)
 // ─────────────────────────────────────────────────────────────────
 
 "use server";
 
 import { requireAuth } from "@/lib/session";
 import { requirePermission } from "@/lib/permissions";
-import { handleActionError, type ActionResult } from "@/lib/errors";
+import { handleActionError, RateLimitError, type ActionResult } from "@/lib/errors";
+import { logAudit } from "@/lib/audit";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createUserSchema, updateUserSchema, changePasswordSchema } from "@/schemas/user.schema";
 import * as userService from "@/services/user.service";
 
-// ─── Kullanıcı Listesi ───
+// ─── Kullanıcı Listesi (read — rate limit yok) ───
 export async function listUsersAction(params: {
     page?: number;
     pageSize?: number;
@@ -37,7 +29,7 @@ export async function listUsersAction(params: {
     }
 }
 
-// ─── Kullanıcı Detayı ───
+// ─── Kullanıcı Detayı (read — rate limit yok) ───
 export async function getUserAction(
     id: string
 ): Promise<ActionResult<Awaited<ReturnType<typeof userService.getUserById>>>> {
@@ -59,9 +51,18 @@ export async function createUserAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "users:create");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const validated = createUserSchema.parse(input);
         const result = await userService.createUser(validated);
+
+        await logAudit({
+            userId: user.id, action: "user.create", entity: "User",
+            entityId: result.id, metadata: { email: result.email, role: result.role },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: result };
     } catch (error) {
         return handleActionError(error);
@@ -75,9 +76,18 @@ export async function updateUserAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "users:update");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const validated = updateUserSchema.parse(input);
         const result = await userService.updateUser(validated);
+
+        await logAudit({
+            userId: user.id, action: "user.update", entity: "User",
+            entityId: result.id, metadata: { changedFields: Object.keys(validated) },
+            duration: Date.now() - start,
+        });
+
         return { success: true, data: result };
     } catch (error) {
         return handleActionError(error);
@@ -91,9 +101,17 @@ export async function changePasswordAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "users:update");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         const validated = changePasswordSchema.parse(input);
         await userService.changePassword(validated);
+
+        await logAudit({
+            userId: user.id, action: "user.change_password", entity: "User",
+            entityId: validated.id, duration: Date.now() - start,
+        });
+
         return { success: true, data: undefined };
     } catch (error) {
         return handleActionError(error);
@@ -107,8 +125,16 @@ export async function deactivateUserAction(
     try {
         const user = await requireAuth();
         requirePermission(user.role, "users:delete");
+        if (!checkRateLimit(user.id, RATE_LIMITS.ACTION)) throw new RateLimitError();
 
+        const start = Date.now();
         await userService.deactivateUser(id);
+
+        await logAudit({
+            userId: user.id, action: "user.deactivate", entity: "User",
+            entityId: id, duration: Date.now() - start,
+        });
+
         return { success: true, data: undefined };
     } catch (error) {
         return handleActionError(error);
