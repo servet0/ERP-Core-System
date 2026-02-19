@@ -54,7 +54,9 @@ export async function createProductAction(
 
         const start = Date.now();
         const validated = createProductSchema.parse(input);
-        const result = await productService.createProduct(validated);
+        // TODO: organizationId session'dan alınacak
+        const organizationId = "";
+        const result = await productService.createProduct(organizationId, validated);
 
         await logAudit({
             userId: user.id, action: "product.create", entity: "Product",
@@ -79,7 +81,9 @@ export async function updateProductAction(
 
         const start = Date.now();
         const validated = updateProductSchema.parse(input);
-        const result = await productService.updateProduct(validated);
+        // TODO: organizationId session'dan alınacak
+        const organizationId = "";
+        const result = await productService.updateProduct(organizationId, validated);
 
         await logAudit({
             userId: user.id, action: "product.update", entity: "Product",

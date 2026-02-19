@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────
-// Product Service — İş Mantığı Katmanı
+// Product Service — İş Mantığı Katmanı (Phase 7A: Org-Scoped)
 // ─────────────────────────────────────────────────────────────────
 
 import prisma from "@/lib/prisma";
@@ -13,7 +13,7 @@ import type { Product } from "@prisma/client";
 export async function listProducts(
     filter: ProductFilterInput
 ): Promise<PaginatedResult<Product>> {
-    const { page, pageSize, search, active, lowStockOnly } = filter;
+    const { page, pageSize, search, active } = filter;
     const skip = (page - 1) * pageSize;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,28 +28,6 @@ export async function listProducts(
 
     if (active !== undefined) {
         where.active = active;
-    }
-
-    if (lowStockOnly) {
-        // currentStock < minStock olan ürünler
-        where.AND = [
-            ...(where.AND ?? []),
-            {
-                currentStock: {
-                    lt: prisma.product.fields.minStock,
-                },
-            },
-        ];
-        // Prisma'da field-to-field karşılaştırma doğrudan desteklenmez.
-        // Bu nedenle raw query kullanıyoruz:
-        // Alternatif olarak: tümünü çekip JS'de filtreleyebiliriz
-        // ama veri büyüklüğü arttığında performans sorunu olur.
-        // Şimdilik basit yaklaşım: minStock > 0 ve currentStock'u kontrol et
-        delete where.AND;
-        where.minStock = { gt: 0 };
-        // Not: Bu yaklaşım %100 doğru değil,
-        // gerçek implementasyonda $queryRaw ile field comparison yapılmalı.
-        // Phase 5'te optimize edilecek.
     }
 
     const finalWhere = excludeDeleted(where);
@@ -87,10 +65,18 @@ export async function getProductById(id: string): Promise<Product> {
 }
 
 // ─── Ürün Oluşturma ───
-export async function createProduct(input: CreateProductInput): Promise<Product> {
-    // SKU teklik kontrolü
+export async function createProduct(
+    organizationId: string,
+    input: CreateProductInput
+): Promise<Product> {
+    // SKU teklik kontrolü (org-scoped)
     const existing = await prisma.product.findUnique({
-        where: { sku: input.sku },
+        where: {
+            organizationId_sku: {
+                organizationId,
+                sku: input.sku,
+            },
+        },
     });
 
     if (existing) {
@@ -101,18 +87,21 @@ export async function createProduct(input: CreateProductInput): Promise<Product>
 
     return prisma.product.create({
         data: {
+            organizationId,
             sku: input.sku,
             name: input.name,
             description: input.description,
             unit: input.unit,
             price: input.price,
-            minStock: input.minStock,
         },
     });
 }
 
 // ─── Ürün Güncelleme ───
-export async function updateProduct(input: UpdateProductInput): Promise<Product> {
+export async function updateProduct(
+    organizationId: string,
+    input: UpdateProductInput
+): Promise<Product> {
     const existing = await prisma.product.findUnique({
         where: { id: input.id },
     });
@@ -121,10 +110,15 @@ export async function updateProduct(input: UpdateProductInput): Promise<Product>
         throw new NotFoundError("Ürün bulunamadı");
     }
 
-    // SKU değişiyorsa teklik kontrolü
+    // SKU değişiyorsa teklik kontrolü (org-scoped)
     if (input.sku && input.sku !== existing.sku) {
         const skuExists = await prisma.product.findUnique({
-            where: { sku: input.sku },
+            where: {
+                organizationId_sku: {
+                    organizationId,
+                    sku: input.sku,
+                },
+            },
         });
         if (skuExists) {
             throw new ValidationError("Bu stok kodu zaten kullanılmaktadır", {

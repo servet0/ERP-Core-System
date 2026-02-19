@@ -90,8 +90,13 @@ export async function approveOrder(orderId: string, userId: string) {
         });
 
         // Stok düş — her kalem için pessimistic lock + kontrol
+        // TODO: warehouseId sipariş verisinden veya varsayılan depodan alınacak
+        const organizationId = "";
+        const warehouseId = "";
         await reserveStockForOrder(
             txClient,
+            organizationId,
+            warehouseId,
             items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
             userId,
             order.order_number
@@ -140,8 +145,13 @@ export async function cancelOrder(orderId: string, userId: string) {
         });
 
         // Stok geri yükle
+        // TODO: warehouseId sipariş verisinden veya varsayılan depodan alınacak
+        const organizationId = "";
+        const warehouseId = "";
         await returnStockForCancel(
             txClient,
+            organizationId,
+            warehouseId,
             items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
             userId,
             order.order_number

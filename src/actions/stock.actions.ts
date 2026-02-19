@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────
-// Stock Server Actions (Phase 5: +audit, +rate-limit)
+// Stock Server Actions (Phase 7A: +org-scope, +warehouse)
 // ─────────────────────────────────────────────────────────────────
 
 "use server";
@@ -23,8 +23,13 @@ export async function stockInAction(
 
         const start = Date.now();
         const validated = stockInSchema.parse(input);
+        // TODO: organizationId ve warehouseId session/input'tan alınacak
+        const organizationId = (validated as unknown as Record<string, string>).organizationId ?? "";
+        const warehouseId = (validated as unknown as Record<string, string>).warehouseId ?? "";
         await stockService.addStock(
+            organizationId,
             validated.productId,
+            warehouseId,
             validated.quantity,
             user.id,
             validated.note
@@ -54,8 +59,13 @@ export async function stockOutAction(
 
         const start = Date.now();
         const validated = stockOutSchema.parse(input);
+        // TODO: organizationId ve warehouseId session/input'tan alınacak
+        const organizationId = (validated as unknown as Record<string, string>).organizationId ?? "";
+        const warehouseId = (validated as unknown as Record<string, string>).warehouseId ?? "";
         await stockService.removeStock(
+            organizationId,
             validated.productId,
+            warehouseId,
             validated.quantity,
             user.id,
             validated.note

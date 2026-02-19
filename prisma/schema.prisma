@@ -1,18 +1,12 @@
 // ─────────────────────────────────────────────────────────────────
-// ERP-Core-System — Prisma Schema
+// ERP-Core-System — Prisma Schema (Phase 7A: Multi-Tenant Inventory)
 // ─────────────────────────────────────────────────────────────────
-// Neden Prisma?
-//   1. Type-safe veritabanı erişimi — TypeScript entegrasyonu mükemmel.
-//   2. Interactive transactions ($transaction) ile pessimistic locking desteği.
-//   3. Deklaratif schema → migration otomatik üretimi.
-//   4. Prisma Studio ile hızlı veri inceleme.
-//   5. Next.js ekosistemi ile en yaygın kullanılan ORM.
-//
-// Alternatif: TypeORM
-//   - Active Record + Data Mapper pattern desteği var ama TypeScript tip
-//     güvenliği Prisma kadar güçlü değil.
-//   - Next.js App Router + Server Components ile entegrasyonu daha zayıf.
-//   - Migration yönetimi daha manuel.
+// Changelog:
+//   Phase 1-4: User, Product, StockMovement, Order, Invoice
+//   Phase 5:   AuditLog, soft-delete (deletedAt)
+//   Phase 6:   OutboxEvent
+//   Phase 7A:  Organization (multi-tenant), Category, Warehouse,
+//              Stock (product×warehouse), redesigned enums
 // ─────────────────────────────────────────────────────────────────
 
 generator client {
@@ -23,7 +17,32 @@ datasource db {
   provider = "postgresql"
 }
 
-// ──────────────── Kullanıcı & Rol ────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  MULTI-TENANT ROOT
+// ═══════════════════════════════════════════════════════════════════
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  taxId     String?  @unique @map("tax_id")        // Vergi No — gerçek dünya unique tanımlayıcı
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // İlişkiler — her iş verisi org'a bağlı
+  users          User[]
+  categories     Category[]
+  products       Product[]
+  warehouses     Warehouse[]
+  stocks         Stock[]
+  stockMovements StockMovement[]
+
+  @@map("organizations")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  KULLANICI & ROL
+// ═══════════════════════════════════════════════════════════════════
 
 enum Role {
   ADMIN
@@ -33,90 +52,186 @@ enum Role {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String
-  passwordHash String    @map("password_hash")
-  role         Role      @default(VIEWER)
-  active       Boolean   @default(true)
-  deletedAt    DateTime? @map("deleted_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(cuid())
+  organizationId String?   @map("organization_id")  // null = sistem admin
+  email          String    @unique
+  name           String
+  passwordHash   String    @map("password_hash")
+  role           Role      @default(VIEWER)
+  active         Boolean   @default(true)
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   // İlişkiler
+  organization   Organization? @relation(fields: [organizationId], references: [id])
   orders         Order[]
   stockMovements StockMovement[]
   invoices       Invoice[]
   auditLogs      AuditLog[]
 
+  @@index([organizationId])
   @@index([deletedAt])
   @@map("users")
 }
 
-// ──────────────── Ürün & Stok ────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  KATEGORİ (Hiyerarşik, org-scoped)
+// ═══════════════════════════════════════════════════════════════════
+// Self-referencing parent/children → sınırsız derinlik
+// Örnek: Elektronik → Telefonlar → Akıllı Telefonlar
 
-model Product {
-  id           String    @id @default(cuid())
-  sku          String    @unique
-  name         String
-  description  String?
-  unit         String    @default("ADET") // ADET, KG, LT, METRE
-  price        Decimal   @default(0) @db.Decimal(12, 2)
-  minStock     Int       @default(0) @map("min_stock")
-  currentStock Int       @default(0) @map("current_stock")
-  active       Boolean   @default(true)
-  deletedAt    DateTime? @map("deleted_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+model Category {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  parentId       String?  @map("parent_id")         // null = kök kategori
+  name           String
+  slug           String                              // URL-safe tanımlayıcı
+  sortOrder      Int      @default(0) @map("sort_order")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
 
   // İlişkiler
-  orderItems     OrderItem[]
-  stockMovements StockMovement[]
+  organization Organization @relation(fields: [organizationId], references: [id])
+  parent       Category?    @relation("CategoryTree", fields: [parentId], references: [id])
+  children     Category[]   @relation("CategoryTree")
+  products     Product[]
 
-  @@index([sku])
-  @@index([name])
-  @@index([deletedAt])
+  @@unique([organizationId, slug])              // slug org içinde unique
+  @@index([organizationId, parentId])           // hızlı ağaç traversal
+  @@map("categories")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  ÜRÜN (Org-scoped, kategorili)
+// ═══════════════════════════════════════════════════════════════════
+// currentStock KALDIRILDI — Stock modeline taşındı (multi-warehouse).
+// Toplam stok = SUM(stocks.quantity WHERE productId = X)
+
+model Product {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  categoryId     String?   @map("category_id")
+  sku            String
+  name           String
+  description    String?
+  unit           String    @default("ADET")          // ADET, KG, LT, METRE
+  price          Decimal   @default(0) @db.Decimal(12, 2)
+  active         Boolean   @default(true)
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // İlişkiler
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  category       Category?      @relation(fields: [categoryId], references: [id])
+  stocks         Stock[]
+  stockMovements StockMovement[]
+  orderItems     OrderItem[]
+
+  @@unique([organizationId, sku])               // SKU org içinde unique, global değil
+  @@index([organizationId, name])               // org-scoped ürün arama
+  @@index([categoryId])                         // kategori filtreleme
+  @@index([deletedAt])                          // soft-delete filtre
   @@map("products")
 }
 
-// ─── Stok Hareket Türleri ───
-// IN:         Depo girişi (manuel stok artırma)
-// OUT:        Manuel çıkış (sayım farkı, fire vb.)
-// ORDER_OUT:  Sipariş onayı ile otomatik stok düşme
-// CANCEL_IN:  Sipariş iptali ile otomatik stok iade
+// ═══════════════════════════════════════════════════════════════════
+//  DEPO (Org-scoped)
+// ═══════════════════════════════════════════════════════════════════
 
-enum MovementType {
-  IN
-  OUT
-  ORDER_OUT
-  CANCEL_IN
+model Warehouse {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  code           String                              // "WH-01", "MERKEZ"
+  name           String
+  address        String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // İlişkiler
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  stocks         Stock[]
+  stockMovements StockMovement[]
+
+  @@unique([organizationId, code])              // depo kodu org içinde unique
+  @@map("warehouses")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  STOK SEVİYESİ (Denormalize — product × warehouse)
+// ═══════════════════════════════════════════════════════════════════
+// Her (product, warehouse) çifti için TAM BİR kayıt.
+// quantity: güncel stok miktarı (StockMovement'larla senkron tutulur)
+
+model Stock {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  productId      String   @map("product_id")
+  warehouseId    String   @map("warehouse_id")
+  quantity       Int      @default(0)                // mevcut stok
+  minQuantity    Int      @default(0) @map("min_quantity")  // minimum stok uyarı eşiği
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // İlişkiler
+  organization Organization @relation(fields: [organizationId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+  warehouse    Warehouse    @relation(fields: [warehouseId], references: [id])
+
+  @@unique([productId, warehouseId])            // bir ürün-depo çifti = bir stok kaydı
+  @@index([organizationId])                     // org bazlı stok sorguları
+  @@index([warehouseId])                        // depo bazlı filtre
+  @@map("stocks")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  STOK HAREKETLERİ (Redesigned Enums)
+// ═══════════════════════════════════════════════════════════════════
+// StockMovementType: Hareketin YÖNÜ (IN/OUT/ADJUSTMENT)
+// StockReferenceType: Hareketin NEDENİ (SALE/PURCHASE/MANUAL)
+
+enum StockMovementType {
+  IN                // Stok girişi
+  OUT               // Stok çıkışı
+  ADJUSTMENT        // Sayım düzeltmesi (+ veya -)
+}
+
+enum StockReferenceType {
+  SALE              // Satış kaynaklı
+  PURCHASE          // Satın alma kaynaklı
+  MANUAL            // Manuel işlem
 }
 
 model StockMovement {
-  id          String       @id @default(cuid())
-  productId   String       @map("product_id")
-  type        MovementType
-  quantity    Int          // Her zaman pozitif; yön type'dan anlaşılır
-  reference   String?      // Sipariş No veya harici referans
-  note        String?
-  createdById String       @map("created_by_id")
-  createdAt   DateTime     @default(now()) @map("created_at")
+  id             String             @id @default(cuid())
+  organizationId String             @map("organization_id")
+  productId      String             @map("product_id")
+  warehouseId    String             @map("warehouse_id")
+  type           StockMovementType
+  referenceType  StockReferenceType @default(MANUAL) @map("reference_type")
+  quantity       Int                                  // pozitif; yön type'dan anlaşılır
+  reference      String?                              // sipariş no, satın alma no vb.
+  note           String?
+  createdById    String             @map("created_by_id")
+  createdAt      DateTime           @default(now()) @map("created_at")
 
   // İlişkiler
-  product   Product @relation(fields: [productId], references: [id])
-  createdBy User    @relation(fields: [createdById], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  product      Product      @relation(fields: [productId], references: [id])
+  warehouse    Warehouse    @relation(fields: [warehouseId], references: [id])
+  createdBy    User         @relation(fields: [createdById], references: [id])
 
-  @@index([productId, createdAt])
-  @@index([type])
+  @@index([organizationId, createdAt])          // org-scoped hareket geçmişi
+  @@index([productId, createdAt])               // ürün bazlı hareket
+  @@index([warehouseId])                        // depo bazlı filtre
+  @@index([type])                               // tür bazlı filtre
   @@map("stock_movements")
 }
 
-// ──────────────── Sipariş ────────────────
-
-// Sipariş Durum Makinesi:
-//   DRAFT → APPROVED → (CANCELLED)
-//   DRAFT → CANCELLED
-// Geri geçiş yoktur (APPROVED → DRAFT yapılamaz).
+// ═══════════════════════════════════════════════════════════════════
+//  SİPARİŞ
+// ═══════════════════════════════════════════════════════════════════
+// Durum Makinesi: DRAFT → APPROVED → (CANCELLED)
 
 enum OrderStatus {
   DRAFT
@@ -163,10 +278,9 @@ model OrderItem {
   @@map("order_items")
 }
 
-// ──────────────── Fatura ────────────────
-
-// Fatura oluşturulduktan sonra DEĞİŞTİRİLEMEZ (immutable).
-// Bu kural service katmanında zorunlu tutulur.
+// ═══════════════════════════════════════════════════════════════════
+//  FATURA (Immutable)
+// ═══════════════════════════════════════════════════════════════════
 
 model Invoice {
   id            String   @id @default(cuid())
@@ -184,21 +298,21 @@ model Invoice {
   @@map("invoices")
 }
 
-// ──────────────── Audit Log ────────────────
-// Append-only — update/delete YOKTUR.
-// GDPR: PII minimum, parola/token ASLA loglanmaz.
+// ═══════════════════════════════════════════════════════════════════
+//  AUDIT LOG (Append-only)
+// ═══════════════════════════════════════════════════════════════════
 
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String?  @map("user_id")
-  action    String                         // "user.create", "order.approve"
-  entity    String                         // "User", "Order", "Product"
+  action    String
+  entity    String
   entityId  String?  @map("entity_id")
-  metadata  Json?                          // PII-safe payload
+  metadata  Json?
   ipAddress String?  @map("ip_address")
   userAgent String?  @map("user_agent")
-  duration  Int?                           // ms
-  status    String   @default("SUCCESS")   // SUCCESS | FAILURE
+  duration  Int?
+  status    String   @default("SUCCESS")
   error     String?
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -211,16 +325,15 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// ──────────────── Outbox Events ────────────────
-// Transactional outbox pattern — async events atomically
-// written alongside business operations.
-// Status: PENDING → PROCESSING → DONE | FAILED
+// ═══════════════════════════════════════════════════════════════════
+//  OUTBOX EVENTS (Transactional Outbox Pattern)
+// ═══════════════════════════════════════════════════════════════════
 
 model OutboxEvent {
   id             String    @id @default(cuid())
-  type           String                           // "ORDER_APPROVED", "LOW_STOCK", "USER_CREATED"
+  type           String
   payload        Json
-  status         String    @default("PENDING")     // PENDING | PROCESSING | DONE | FAILED
+  status         String    @default("PENDING")
   retryCount     Int       @default(0) @map("retry_count")
   maxRetries     Int       @default(3) @map("max_retries")
   error          String?
