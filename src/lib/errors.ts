@@ -1,35 +1,55 @@
 // ─────────────────────────────────────────────────────────────────
-// İş Mantığı Hata Sınıfları
+// Typed Error Hierarchy (Phase 5)
 // ─────────────────────────────────────────────────────────────────
-// Neden özel hata sınıfları?
-//   1. Server Actions'da hata türünü ayırt edip kullanıcıya uygun
-//      mesaj göstermek için (iş hatası vs beklenmeyen hata).
-//   2. `code` alanı, frontend'de i18n veya hata eşleme için kullanılabilir.
-//   3. Loglama katmanında iş hataları (expected) ile sistem hataları
-//      (unexpected) farklı seviyede loglanır.
+// BusinessError → AppError (rename + genişletme)
+// Serbest string code → ErrorCode union type (type-safe)
+// isOperational: true = beklenen iş hatası, false = sistem hatası
 // ─────────────────────────────────────────────────────────────────
 
-/**
- * Tüm iş mantığı hatalarının temel sınıfı.
- * Bu hata türü "beklenen" hatalardır — kullanıcıya mesaj gösterilebilir.
- */
-export class BusinessError extends Error {
-    public readonly code: string;
+import { ZodError } from "zod";
+import { logger } from "./logger";
+
+// ── Error Codes ──
+
+export type ErrorCode =
+    | "UNAUTHORIZED"
+    | "SESSION_EXPIRED"
+    | "FORBIDDEN"
+    | "NOT_FOUND"
+    | "VALIDATION_ERROR"
+    | "INSUFFICIENT_STOCK"
+    | "INVALID_ORDER_STATUS"
+    | "DUPLICATE_INVOICE"
+    | "RATE_LIMIT_EXCEEDED"
+    | "INTERNAL_ERROR";
+
+// ── Base Error ──
+
+export class AppError extends Error {
+    public readonly code: ErrorCode;
     public readonly statusCode: number;
+    public readonly isOperational: boolean;
 
-    constructor(code: string, message: string, statusCode: number = 400) {
+    constructor(
+        code: ErrorCode,
+        message: string,
+        statusCode: number = 400,
+        isOperational: boolean = true
+    ) {
         super(message);
-        this.name = "BusinessError";
+        this.name = "AppError";
         this.code = code;
         this.statusCode = statusCode;
+        this.isOperational = isOperational;
     }
 }
 
-/**
- * Stok yetersizliği hatası.
- * Bir ürünün mevcut stoğu istenen miktardan az olduğunda fırlatılır.
- */
-export class InsufficientStockError extends BusinessError {
+// Backward compat alias — mevcut import'ları kırmamak için
+export const BusinessError = AppError;
+
+// ── Domain Errors ──
+
+export class InsufficientStockError extends AppError {
     public readonly sku: string;
     public readonly available: number;
     public readonly requested: number;
@@ -46,41 +66,17 @@ export class InsufficientStockError extends BusinessError {
     }
 }
 
-/**
- * Geçersiz sipariş durumu geçişi hatası.
- * Örn: CANCELLED → APPROVED geçişi denendiğinde fırlatılır.
- */
-export class InvalidOrderStatusError extends BusinessError {
-    public readonly currentStatus: string;
-    public readonly targetStatus: string;
-
+export class InvalidOrderStatusError extends AppError {
     constructor(currentStatus: string, targetStatus: string) {
         super(
             "INVALID_ORDER_STATUS",
             `Geçersiz durum geçişi: ${currentStatus} → ${targetStatus}`
         );
         this.name = "InvalidOrderStatusError";
-        this.currentStatus = currentStatus;
-        this.targetStatus = targetStatus;
     }
 }
 
-/**
- * Yetkilendirme hatası.
- * Kullanıcının rolü istenen işlem için yetersiz olduğunda fırlatılır.
- */
-export class UnauthorizedError extends BusinessError {
-    constructor(message: string = "Bu işlem için yetkiniz bulunmamaktadır.") {
-        super("UNAUTHORIZED", message, 403);
-        this.name = "UnauthorizedError";
-    }
-}
-
-/**
- * Mükerrer fatura hatası.
- * Bir sipariş için zaten fatura kesildiyse fırlatılır.
- */
-export class DuplicateInvoiceError extends BusinessError {
+export class DuplicateInvoiceError extends AppError {
     constructor(orderNumber: string) {
         super(
             "DUPLICATE_INVOICE",
@@ -90,20 +86,25 @@ export class DuplicateInvoiceError extends BusinessError {
     }
 }
 
-/**
- * Kayıt bulunamadı hatası.
- */
-export class NotFoundError extends BusinessError {
+// ── Auth Errors ──
+
+export class UnauthorizedError extends AppError {
+    constructor(message: string = "Bu işlem için yetkiniz bulunmamaktadır.") {
+        super("UNAUTHORIZED", message, 403);
+        this.name = "UnauthorizedError";
+    }
+}
+
+// ── Infra Errors ──
+
+export class NotFoundError extends AppError {
     constructor(message: string, id?: string) {
         super("NOT_FOUND", id ? `${message} bulunamadı: ${id}` : message, 404);
         this.name = "NotFoundError";
     }
 }
 
-/**
- * Validasyon hatası — Zod hataları için sarmalayıcı.
- */
-export class ValidationError extends BusinessError {
+export class ValidationError extends AppError {
     public readonly fieldErrors: Record<string, string[]>;
 
     constructor(message: string, fieldErrors?: Record<string, string[]>) {
@@ -113,24 +114,49 @@ export class ValidationError extends BusinessError {
     }
 }
 
+export class RateLimitError extends AppError {
+    constructor() {
+        super("RATE_LIMIT_EXCEEDED", "Çok fazla istek gönderdiniz. Lütfen bekleyin.", 429);
+        this.name = "RateLimitError";
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────
-// Yardımcı: Server Action sonuç tipi
+// ActionResult<T> — Server Action sonuç tipi
 // ─────────────────────────────────────────────────────────────────
 
-/**
- * Tüm Server Actions bu tip ile sonuç döner.
- * Başarısızlık durumunda hata kodu ve mesajı içerir.
- */
 export type ActionResult<T = void> =
     | { success: true; data: T }
-    | { success: false; error: { code: string; message: string; fieldErrors?: Record<string, string[]> } };
+    | {
+        success: false;
+        error: {
+            code: ErrorCode;
+            message: string;
+            fieldErrors?: Record<string, string[]>;
+        };
+    };
 
-/**
- * Server Action'larda kullanılacak hata yakalama yardımcısı.
- * BusinessError → yapılandırılmış hata yanıtı
- * Diğer hatalar → genel hata mesajı (detaylar loglanır)
- */
+// ─────────────────────────────────────────────────────────────────
+// handleActionError — Server Action hata yakalama
+// ─────────────────────────────────────────────────────────────────
+
 export function handleActionError(error: unknown): ActionResult<never> {
+    // 1. Zod doğrulama hatası
+    if (error instanceof ZodError) {
+        const fieldErrors: Record<string, string[]> = {};
+        for (const issue of error.issues) {
+            const path = issue.path.join(".");
+            if (!fieldErrors[path]) fieldErrors[path] = [];
+            fieldErrors[path].push(issue.message);
+        }
+        logger.warn("Validation Error (Zod)", { fieldErrors });
+        return {
+            success: false,
+            error: { code: "VALIDATION_ERROR", message: "Veri doğrulama hatası", fieldErrors },
+        };
+    }
+
+    // 2. Kendi hata sınıflarımız (operational)
     if (error instanceof ValidationError) {
         return {
             success: false,
@@ -142,18 +168,22 @@ export function handleActionError(error: unknown): ActionResult<never> {
         };
     }
 
-    if (error instanceof BusinessError) {
+    if (error instanceof AppError) {
+        if (error.isOperational) {
+            logger.warn(`[${error.code}] ${error.message}`);
+        } else {
+            logger.error(`[SYSTEM] ${error.code}`, { message: error.message });
+        }
         return {
             success: false,
-            error: {
-                code: error.code,
-                message: error.message,
-            },
+            error: { code: error.code, message: error.message },
         };
     }
 
-    // Beklenmeyen hata — loglama yapılmalı, kullanıcıya detay verilmemeli
-    console.error("[UNEXPECTED_ERROR]", error);
+    // 3. Beklenmeyen hata — kullanıcıya detay verilmemeli
+    logger.error("Unexpected Error", {
+        error: error instanceof Error ? error.message : String(error),
+    });
     return {
         success: false,
         error: {

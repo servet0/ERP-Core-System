@@ -33,37 +33,41 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   name         String
-  passwordHash String   @map("password_hash")
-  role         Role     @default(VIEWER)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  passwordHash String    @map("password_hash")
+  role         Role      @default(VIEWER)
+  active       Boolean   @default(true)
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // İlişkiler
   orders         Order[]
   stockMovements StockMovement[]
   invoices       Invoice[]
+  auditLogs      AuditLog[]
 
+  @@index([deletedAt])
   @@map("users")
 }
 
 // ──────────────── Ürün & Stok ────────────────
 
 model Product {
-  id           String   @id @default(cuid())
-  sku          String   @unique
+  id           String    @id @default(cuid())
+  sku          String    @unique
   name         String
   description  String?
-  unit         String   @default("ADET") // ADET, KG, LT, METRE
-  price        Decimal  @default(0) @db.Decimal(12, 2)
-  minStock     Int      @default(0) @map("min_stock")
-  currentStock Int      @default(0) @map("current_stock")
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  unit         String    @default("ADET") // ADET, KG, LT, METRE
+  price        Decimal   @default(0) @db.Decimal(12, 2)
+  minStock     Int       @default(0) @map("min_stock")
+  currentStock Int       @default(0) @map("current_stock")
+  active       Boolean   @default(true)
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // İlişkiler
   orderItems     OrderItem[]
@@ -71,6 +75,7 @@ model Product {
 
   @@index([sku])
   @@index([name])
+  @@index([deletedAt])
   @@map("products")
 }
 
@@ -177,4 +182,31 @@ model Invoice {
 
   @@index([orderId])
   @@map("invoices")
+}
+
+// ──────────────── Audit Log ────────────────
+// Append-only — update/delete YOKTUR.
+// GDPR: PII minimum, parola/token ASLA loglanmaz.
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  action    String                         // "user.create", "order.approve"
+  entity    String                         // "User", "Order", "Product"
+  entityId  String?  @map("entity_id")
+  metadata  Json?                          // PII-safe payload
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  duration  Int?                           // ms
+  status    String   @default("SUCCESS")   // SUCCESS | FAILURE
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
