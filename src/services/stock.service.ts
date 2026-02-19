@@ -429,23 +429,24 @@ export async function adjustStock(params: {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Public API — Order Integration (called within existing tx)
+// Public API — Transaction-Composable Stock Helpers
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Reserve stock for an approved order — called by OrderService
- * within its own transaction. Decreases stock per item.
+ * Reserve (decrease) stock within an existing transaction.
+ * Used by SaleService, OrderService, or any module that needs
+ * atomic multi-item stock deduction.
  *
  * Note: This function receives a TransactionClient so it composes
- * within OrderService's transaction, not creating a nested one.
+ * within the caller's transaction, not creating a nested one.
  */
-export async function reserveStockForOrder(
+export async function reserveStock(
     tx: TransactionClient,
     organizationId: string,
     warehouseId: string,
     items: Array<{ productId: string; quantity: number }>,
     userId: string,
-    orderNumber: string,
+    referenceNumber: string,
 ): Promise<void> {
     // Validate warehouse once for all items
     await validateWarehouseOwnership(tx, warehouseId, organizationId);
@@ -471,7 +472,7 @@ export async function reserveStockForOrder(
                 type: StockMovementType.OUT,
                 referenceType: StockReferenceType.SALE,
                 quantity: item.quantity,
-                reference: orderNumber,
+                reference: referenceNumber,
                 createdById: userId,
             },
         });
@@ -483,17 +484,21 @@ export async function reserveStockForOrder(
     }
 }
 
+/** @deprecated Use `reserveStock` instead */
+export const reserveStockForOrder = reserveStock;
+
 /**
- * Return stock for a cancelled order — called by OrderService
- * within its own transaction. Increases stock per item.
+ * Return (increase) stock within an existing transaction.
+ * Used by SaleService, OrderService, or any module that needs
+ * atomic multi-item stock return on cancellation.
  */
-export async function returnStockForCancel(
+export async function returnStock(
     tx: TransactionClient,
     organizationId: string,
     warehouseId: string,
     items: Array<{ productId: string; quantity: number }>,
     userId: string,
-    orderNumber: string,
+    referenceNumber: string,
 ): Promise<void> {
     for (const item of items) {
         // Movement first, then balance
@@ -505,8 +510,8 @@ export async function returnStockForCancel(
                 type: StockMovementType.IN,
                 referenceType: StockReferenceType.SALE,
                 quantity: item.quantity,
-                reference: orderNumber,
-                note: "Sipariş iptali — stok iade",
+                reference: referenceNumber,
+                note: "İptal — stok iade",
                 createdById: userId,
             },
         });
@@ -517,6 +522,9 @@ export async function returnStockForCancel(
         });
     }
 }
+
+/** @deprecated Use `returnStock` instead */
+export const returnStockForCancel = returnStock;
 
 // ─────────────────────────────────────────────────────────────────
 // Public API — Read Operations

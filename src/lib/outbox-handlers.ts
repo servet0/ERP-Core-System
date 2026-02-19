@@ -24,6 +24,12 @@ export async function handleOutboxEvent(
     switch (type) {
         case "ORDER_APPROVED":
             return handleOrderApproved(payload as unknown as OrderApprovedPayload);
+        case "SALE_APPROVED":
+            logger.info("SALE_APPROVED event processed", payload);
+            return;
+        case "SALE_CANCELLED":
+            logger.info("SALE_CANCELLED event processed", payload);
+            return;
         case "LOW_STOCK":
             return handleLowStock(payload as unknown as LowStockPayload);
         case "USER_CREATED":

@@ -132,6 +132,41 @@ export async function lockOrderForUpdate(
 
     return results[0] ?? null;
 }
+/**
+ * Bir satış satırını pessimistic lock ile kilitler.
+ * Transaction içinde kullanılmalıdır.
+ */
+export async function lockSaleForUpdate(
+    tx: TransactionClient,
+    saleId: string
+): Promise<{
+    id: string;
+    sale_number: string;
+    status: string;
+    organization_id: string;
+    warehouse_id: string;
+    total_amount: Prisma.Decimal;
+    created_by_id: string;
+} | null> {
+    const results = await (tx as PrismaClient).$queryRaw<
+        Array<{
+            id: string;
+            sale_number: string;
+            status: string;
+            organization_id: string;
+            warehouse_id: string;
+            total_amount: Prisma.Decimal;
+            created_by_id: string;
+        }>
+    >`
+    SELECT id, sale_number, status, organization_id, warehouse_id, total_amount, created_by_id
+    FROM sales
+    WHERE id = ${saleId}
+    FOR UPDATE
+  `;
+
+    return results[0] ?? null;
+}
 
 /**
  * Bir sonraki ardışık numara üretir.
@@ -152,8 +187,8 @@ export async function lockOrderForUpdate(
 export async function generateSequentialNumber(
     tx: TransactionClient,
     prefix: string,
-    table: "orders" | "invoices",
-    column: "order_number" | "invoice_number"
+    table: "orders" | "invoices" | "sales",
+    column: "order_number" | "invoice_number" | "sale_number"
 ): Promise<string> {
     const year = new Date().getFullYear();
     const pattern = `${prefix}-${year}-%`;
@@ -172,7 +207,7 @@ export async function generateSequentialNumber(
       FOR UPDATE
     `;
         lastNumber = result[0]?.order_number ?? null;
-    } else {
+    } else if (table === "invoices") {
         const result = await (tx as PrismaClient).$queryRaw<
             Array<{ invoice_number: string }>
         >`
@@ -183,6 +218,17 @@ export async function generateSequentialNumber(
       FOR UPDATE
     `;
         lastNumber = result[0]?.invoice_number ?? null;
+    } else {
+        const result = await (tx as PrismaClient).$queryRaw<
+            Array<{ sale_number: string }>
+        >`
+      SELECT sale_number FROM sales
+      WHERE sale_number LIKE ${pattern}
+      ORDER BY sale_number DESC
+      LIMIT 1
+      FOR UPDATE
+    `;
+        lastNumber = result[0]?.sale_number ?? null;
     }
 
     let nextSeq = 1;

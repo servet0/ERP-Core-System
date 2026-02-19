@@ -40,6 +40,12 @@ export const PERMISSIONS = {
     "orders:approve": [Role.ADMIN],
     "orders:cancel": [Role.ADMIN],
 
+    // ── Satış Yönetimi ──
+    "sales:list": [Role.ADMIN, Role.SALES, Role.VIEWER],
+    "sales:create": [Role.ADMIN, Role.SALES],
+    "sales:approve": [Role.ADMIN],
+    "sales:cancel": [Role.ADMIN],
+
     // ── Fatura ──
     "invoices:list": [Role.ADMIN, Role.SALES, Role.VIEWER],
     "invoices:create": [Role.ADMIN],

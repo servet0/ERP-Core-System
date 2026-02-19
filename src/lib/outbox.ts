@@ -13,6 +13,8 @@ import type { Prisma } from "@prisma/client";
 
 export type OutboxEventType =
     | "ORDER_APPROVED"
+    | "SALE_APPROVED"
+    | "SALE_CANCELLED"
     | "LOW_STOCK"
     | "USER_CREATED";
 
@@ -35,6 +37,13 @@ export interface UserCreatedPayload {
     userId: string;
     email: string;
     name: string;
+}
+
+export interface SaleApprovedPayload {
+    saleId: string;
+    saleNumber: string;
+    organizationId: string;
+    userId: string;
 }
 
 // ── Publish Helper ──
