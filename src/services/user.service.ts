@@ -14,6 +14,8 @@ import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { excludeDeleted } from "@/lib/soft-delete";
+import { withTransaction } from "@/lib/transaction";
+import { publishEvent } from "@/lib/outbox";
 import type { CreateUserInput, UpdateUserInput, ChangePasswordInput } from "@/schemas/user.schema";
 import type { PaginatedResult } from "@/types";
 import type { User } from "@prisma/client";
@@ -96,7 +98,7 @@ export async function getUserById(id: string): Promise<UserWithoutPassword> {
 
 // ─── Kullanıcı Oluşturma ───
 export async function createUser(input: CreateUserInput): Promise<UserWithoutPassword> {
-    // E-posta teklik kontrolü
+    // E-posta teklik kontrolü (TX dışında — lock gerekmez)
     const existing = await prisma.user.findUnique({
         where: { email: input.email },
     });
@@ -109,25 +111,34 @@ export async function createUser(input: CreateUserInput): Promise<UserWithoutPas
 
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
-    const user = await prisma.user.create({
-        data: {
-            email: input.email,
-            name: input.name,
-            passwordHash,
-            role: input.role,
-        },
-        select: {
-            id: true,
-            email: true,
-            name: true,
-            role: true,
-            active: true,
-            createdAt: true,
-            updatedAt: true,
-        },
-    });
+    return withTransaction(async (tx) => {
+        const txClient = tx as unknown as typeof prisma;
 
-    return user as UserWithoutPassword;
+        const user = await txClient.user.create({
+            data: {
+                email: input.email,
+                name: input.name,
+                passwordHash,
+                role: input.role,
+            },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                active: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        // Outbox: Hoş geldin email tetikle
+        await publishEvent(tx, "USER_CREATED", {
+            userId: user.id, email: user.email, name: user.name,
+        }, `user:create:${user.id}`);
+
+        return user as UserWithoutPassword;
+    });
 }
 
 // ─── Kullanıcı Güncelleme ───

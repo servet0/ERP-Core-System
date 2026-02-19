@@ -15,6 +15,7 @@
 import prisma from "@/lib/prisma";
 import { withTransaction, lockOrderForUpdate, generateSequentialNumber } from "@/lib/transaction";
 import { InvalidOrderStatusError, NotFoundError } from "@/lib/errors";
+import { publishEvent } from "@/lib/outbox";
 import { reserveStockForOrder, returnStockForCancel } from "./stock.service";
 import { OrderStatus, type PrismaClient } from "@prisma/client";
 import type { CreateOrderInput, OrderFilterInput } from "@/schemas/order.schema";
@@ -109,6 +110,11 @@ export async function approveOrder(orderId: string, userId: string) {
                 },
             },
         });
+
+        // Outbox: Async fatura oluşturma tetikle
+        await publishEvent(tx, "ORDER_APPROVED", {
+            orderId, orderNumber: order.order_number, userId,
+        }, `order:approve:${orderId}`);
 
         return updated;
     });

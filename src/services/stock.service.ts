@@ -11,6 +11,7 @@
 import prisma from "@/lib/prisma";
 import { InsufficientStockError, NotFoundError } from "@/lib/errors";
 import { withTransaction, lockProductForUpdate } from "@/lib/transaction";
+import { publishEvent } from "@/lib/outbox";
 import { MovementType, type Prisma, type PrismaClient } from "@prisma/client";
 import type { StockMovementFilterInput } from "@/schemas/stock.schema";
 import type { PaginatedResult } from "@/types";
@@ -87,6 +88,15 @@ export async function removeStock(
                 createdById: userId,
             },
         });
+
+        // Low stock kontrolü — stok minimum seviyeye düştüyse event yayınla
+        const newStock = product.current_stock - quantity;
+        if (newStock <= product.min_stock && product.min_stock > 0) {
+            await publishEvent(tx, "LOW_STOCK", {
+                productId, sku: product.sku,
+                currentStock: newStock, minStock: product.min_stock,
+            }, `low_stock:${productId}:${Math.floor(Date.now() / 60000)}`);
+        }
     });
 }
 

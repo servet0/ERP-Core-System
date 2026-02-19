@@ -210,3 +210,25 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+// ──────────────── Outbox Events ────────────────
+// Transactional outbox pattern — async events atomically
+// written alongside business operations.
+// Status: PENDING → PROCESSING → DONE | FAILED
+
+model OutboxEvent {
+  id             String    @id @default(cuid())
+  type           String                           // "ORDER_APPROVED", "LOW_STOCK", "USER_CREATED"
+  payload        Json
+  status         String    @default("PENDING")     // PENDING | PROCESSING | DONE | FAILED
+  retryCount     Int       @default(0) @map("retry_count")
+  maxRetries     Int       @default(3) @map("max_retries")
+  error          String?
+  idempotencyKey String?   @unique @map("idempotency_key")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  @@index([status, createdAt])
+  @@index([type])
+  @@map("outbox_events")
+}
