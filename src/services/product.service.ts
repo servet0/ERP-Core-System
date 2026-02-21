@@ -85,15 +85,38 @@ export async function createProduct(
         });
     }
 
-    return prisma.product.create({
-        data: {
-            organizationId,
-            sku: input.sku,
-            name: input.name,
-            description: input.description,
-            unit: input.unit,
-            price: input.price,
-        },
+    // Transaction: ürün oluştur + tüm depolarda stok kaydı aç
+    return prisma.$transaction(async (tx) => {
+        const product = await tx.product.create({
+            data: {
+                organizationId,
+                sku: input.sku,
+                name: input.name,
+                description: input.description,
+                unit: input.unit,
+                price: input.price,
+            },
+        });
+
+        // Organizasyondaki tüm depolar için stok kaydı oluştur (qty=0)
+        const warehouses = await tx.warehouse.findMany({
+            where: { organizationId, active: true },
+            select: { id: true },
+        });
+
+        if (warehouses.length > 0) {
+            await tx.stock.createMany({
+                data: warehouses.map((wh) => ({
+                    organizationId,
+                    productId: product.id,
+                    warehouseId: wh.id,
+                    quantity: 0,
+                    minQuantity: input.minStock ?? 0,
+                })),
+            });
+        }
+
+        return product;
     });
 }
 

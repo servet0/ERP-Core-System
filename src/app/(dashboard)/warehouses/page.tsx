@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { Warehouse as WarehouseIcon, Plus } from "lucide-react";
+import { Warehouse as WarehouseIcon } from "lucide-react";
 import { getCurrentUser } from "@/lib/session";
 import { getUserOrganizationId } from "@/lib/get-user-org";
 import { getWarehouses } from "./_lib/queries";
 import { warehouseColumns } from "./_components/columns";
+import { CreateWarehouseDialog } from "./_components/create-warehouse-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, DataTableSkeleton } from "@/components/shared/data-table";
 import { SearchInput } from "@/components/shared/search-input";
-import { Button } from "@/components/ui/button";
 
 interface Props {
     searchParams: Promise<{ search?: string }>;
@@ -27,12 +27,7 @@ export default async function WarehousesPage({ searchParams }: Props) {
                 description="Depo bilgilerini yönetin"
                 icon={WarehouseIcon}
                 action={
-                    user.role === "ADMIN" ? (
-                        <Button>
-                            <Plus className="mr-2 h-4 w-4" />
-                            Yeni Depo
-                        </Button>
-                    ) : undefined
+                    user.role === "ADMIN" ? <CreateWarehouseDialog /> : undefined
                 }
             />
 

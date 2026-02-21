@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { Package, Plus } from "lucide-react";
+import { Package } from "lucide-react";
 import { getCurrentUser } from "@/lib/session";
 import { getUserOrganizationId } from "@/lib/get-user-org";
 import { getProducts } from "./_lib/queries";
 import { productColumns } from "./_components/columns";
+import { CreateProductDialog } from "./_components/create-product-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, DataTableSkeleton } from "@/components/shared/data-table";
 import { SearchInput } from "@/components/shared/search-input";
-import { Button } from "@/components/ui/button";
 
 interface Props {
     searchParams: Promise<{ search?: string }>;
@@ -26,12 +26,7 @@ export default async function ProductsPage({ searchParams }: Props) {
                 title="Ürünler"
                 description="Ürün kataloğunu yönetin"
                 icon={Package}
-                action={
-                    <Button>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Yeni Ürün
-                    </Button>
-                }
+                action={<CreateProductDialog />}
             />
 
             <div className="flex items-center gap-4">
