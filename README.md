@@ -2,6 +2,8 @@
 
 Production-grade, multi-tenant ERP platform built with Next.js 16, Prisma 7, and PostgreSQL.
 
+https://github.com/user-attachments/assets/96b413fd-5aa8-4d1a-84b6-4ab706e675a6
+
 ## Tech Stack
 
 | Layer | Technology |
